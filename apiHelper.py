@@ -1,6 +1,19 @@
+import datetime
+import time
 import requests
 from sqlHelper import sqlHelper
-import heapq
+
+
+def compareDates(date1: str, date2: str):
+    dt1 = datetime.datetime.fromisoformat(date1)
+    dt2 = datetime.datetime.fromisoformat(date2)
+
+    if dt1 == dt2:
+        return 0
+    elif dt1 > dt2:
+        return 2
+    else:
+        return 1
 
 
 class srcomAPI(object):
@@ -9,6 +22,7 @@ class srcomAPI(object):
         self.version = "v1"
         self.db = sqlHelper()
         connection = self.db.createCon("src.db")
+        self.reqCount = 0
 
         if not connection:
             raise Exception("Unable to access db")
@@ -21,10 +35,12 @@ class srcomAPI(object):
 
         # Game name is not cached yet
         if sqlResponse is None:
+            self.checkReqCount()
             PARAMS = {"name": gameName}
             url = self.root + '/' + self.version + '/games'
 
             request = requests.get(url, PARAMS)
+            self.reqCount += 1
 
             data = request.json()
             gameID = data['data'][0]['id']
@@ -35,39 +51,29 @@ class srcomAPI(object):
 
         return gameID
 
-    def retrievePlayerColor(self, playerID: str) -> str:
+    def retrievePlayerColor(self, playerID, data) -> str:
         sql = "SELECT color FROM PLAYERS where playerID=?"
         sqlResponse = self.db.cur.execute(sql, [playerID])
         sqlResponse = sqlResponse.fetchone()
 
         if sqlResponse is None:
-            url = self.root + '/' + self.version + '/users/' + playerID
-            request = requests.get(url, None)
-
-            data = request.json()
-
-            if data['data']['name-style']['style'] == 'solid':
-                color = data['data']['name-style']['color']['light']
+            if data['data'][0]['name-style']['style'] == 'solid':
+                color = data['data'][0]['name-style']['color']['light']
             else:
-                color = data['data']['name-style']['color-from']['light']
-
+                color = data['data'][0]['name-style']['color-from']['light']
         else:
             color = sqlResponse[0]
 
         return color
 
-    def retrievePlayerName(self, playerID: str) -> str:
+    def retrievePlayerName(self, playerID: str, data) -> str:
         sql = "SELECT playerName FROM PLAYERS where playerID=?"
         sqlResponse = self.db.cur.execute(sql, [playerID])
         sqlResponse = sqlResponse.fetchone()
 
         if sqlResponse is None:
-            url = self.root + '/' + self.version + '/users/' + playerID
-            request = requests.get(url, None)
-
-            data = request.json()
-            playerName = data['data']['names']['international']
-            color = self.retrievePlayerColor(playerID)
+            playerName = data['data'][0]['names']['international']
+            color = self.retrievePlayerColor(playerID, data)
 
             self.db.cachePlayer(playerID, playerName, color)
         else:
@@ -75,6 +81,9 @@ class srcomAPI(object):
 
         return playerName
 
+    # TODO:
+    #   * Add GUI to allow user to select game/category
+    #   * In the GUI, add loading bar as information is collected.
     def retrieveRuns(self, gameID: str, categoryID: str) -> None:
         if gameID == self.db.game and categoryID == self.db.category:
             print("Game is currently loaded")
@@ -87,27 +96,24 @@ class srcomAPI(object):
         self.db.game = gameID
         self.db.category = categoryID
 
-        # https://www.speedrun.com/api/v1/runs?game=4pd0n31e&Category=lvdowokp&status=verified&orderby=date&direction=asc&max=200
+        # https://www.speedrun.com/api/v1/runs?game=4pdd0n31e&Category=lvdowokp&status=verified&orderby=date&direction=asc&max=200
         maxCount = 200
         url = self.root + '/' + self.version + '/runs'
 
         PARAMS = {"game": gameID, "category": categoryID, "status": "verified",
-                  "orderby": "date", "direction": "asc", "max": maxCount}
+                  "orderby": "date", "direction": "asc", "max": maxCount, "embed": "players"}
 
-        # HACK: store seen runs in a set so you don't double process them. Not sure if this has downsides yet.
+        # HACK: store seen runs in a set, so you don't double process them. Not sure if this has downsides yet.
         seenRuns = set()
 
-        topTen = []
-        heapq.heapify(topTen)
-        offset = 0
+        lastDate = ""
         finished = False
         while not finished:
+            self.checkReqCount()
             request = requests.get(url, PARAMS)
+            self.reqCount += 1
             data = request.json()
 
-            # Check if we are on the last page
-            if offset == 9800:
-                raise Exception("Too many runs to calculate")
             itemsReturned = data['pagination']['size']
             if itemsReturned != maxCount:
                 finished = True
@@ -120,40 +126,38 @@ class srcomAPI(object):
             # If the id has been seen, skip it
             # If the run isn't top ten, skip it
             for run in data['data']:
-                if not (run['date'] is not None and run['id'] not in seenRuns
-                        and (len(topTen) < 10 or run['times']['primary_t'] < topTen[0][0] * -1)):
-                    continue
-
                 runID = run['id']
-
-                # Guests do not have an ID/Account
-                if run['players'][0]['rel'] != 'guest':
-                    playerID = run['players'][0]['id']
-                    color = self.retrievePlayerColor(playerID)
-                    self.db.cachePlayer(
-                        playerID, self.retrievePlayerName(playerID), color)
-                else:
-                    playerID = run['players'][0]['name']
-
-                    self.db.cachePlayer(playerID, playerID, "#6699CC")
 
                 # Date is stored in YYYY-MM-DD
                 runDate = run['date']
                 runTime = run['times']['primary_t']
 
-                # Check to see if the runner is already top ten and remove their old time.
-                for i, (time, player) in enumerate(topTen):
-                    if player == playerID:
-                        topTen.pop(i)
+                if PARAMS['direction'] == 'desc' and compareDates(runDate, lastDate) == 1:
+                    finished = True
 
-                if len(topTen) < 10:
-                    heapq.heappush(topTen, (-runTime, playerID))
+                if runID in seenRuns:
+                    continue
+
+                # Guests do not have an ID/Account
+                if run['players']['data'][0]['rel'] != 'guest':
+                    playerID = run['players']['data'][0]['id']
+                    color = self.retrievePlayerColor(playerID, run['players'])
+                    self.db.cachePlayer(playerID, self.retrievePlayerName(playerID, run['players']), color)
                 else:
-                    heapq.heappushpop(topTen, (-runTime, playerID))
+                    playerID = run['players']['data'][0]['name']
+
+                    self.db.cachePlayer(playerID, playerID, "#6699CC")
 
                 seenRuns.add(runID)
-                playerName = self.retrievePlayerName(playerID)
+                playerName = self.retrievePlayerName(playerID, run['players'])
                 self.db.insertRun(runID, playerName, runDate, runTime)
+
+            # Amount of runs > 10,000
+            if PARAMS['offset'] == 10000 and not finished:
+                time.sleep(60)
+                PARAMS['direction'] = 'desc'
+                lastDate = runDate
+                PARAMS['offset'] = 0
 
     def retrieveCategories(self, gameID: str) -> list:
         sql = "SELECT categoryID, categoryName FROM CATEGORIES WHERE gameID=?"
@@ -162,9 +166,11 @@ class srcomAPI(object):
 
         # Game categories is not cached yet
         if len(sqlResponse) == 0:
+            self.checkReqCount()
             url = self.root + '/' + self.version + '/games/' + gameID + '/categories'
             PARAMS = {"miscellaneous": False}
             request = requests.get(url, PARAMS)
+            self.reqCount += 1
 
             data = request.json()
             result = data['data']
@@ -181,9 +187,18 @@ class srcomAPI(object):
 
         return categories
 
-    '''def retrieveRelease(self,gameID: str) -> str:
-        url = self.root + '/' + self.version + '/games/' + gameID
-        request = requests.get(url,[]) 
+    def getFirstRunDate(self, gameID: str, categoryID: str) -> str:
+        self.checkReqCount()
+        url = self.root + '/' + self.version + '/runs'
+        PARAMS = {"game": gameID, "category": categoryID, "status": "verified", "max": 1, "direction": "asc",
+                  "orderby": "date"}
+
+        request = requests.get(url, PARAMS)
+        self.reqCount += 1
 
         data = request.json()
-        return data['data']['release-date']'''
+        return data['data'][0]['date']
+
+    def checkReqCount(self):
+        if self.reqCount % 100 == 0 and self.reqCount != 0:
+            time.sleep(60)

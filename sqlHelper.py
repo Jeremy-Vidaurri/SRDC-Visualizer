@@ -40,7 +40,7 @@ class sqlHelper(object):
             playerName TEXT NOT NULL,\
             runDate TEXT NOT NULL, \
             runTime REAL,\
-            PRIMARY KEY(runID))"
+            PRIMARY KEY(runID,runDate))"
         categories = "CREATE TABLE IF NOT EXISTS CATEGORIES(\
             gameID TEXT NOT NULL, \
             categoryID TEXT NOT NULL, \

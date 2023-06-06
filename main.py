@@ -34,21 +34,26 @@ def main():
     db.initTables()
 
     api = srcomAPI()
-    id = api.retrieveGameID("Dark Souls III")
-    categories = api.retrieveCategories(id)
-    api.retrieveRuns(id, categories[0][0])
+    game_id = api.retrieveGameID("Celeste")
+    categories = api.retrieveCategories(game_id)
+    api.retrieveRuns(game_id, categories[0][0])
     db.con.commit()
+
+    print(categories)
 
     sql_to_csv(db)
 
+
+'''
     sql = "SELECT min(runDate) FROM RUNS"
     db.cur = db.con.cursor()
     data = db.cur.execute(sql, [])
     startDate = data.fetchone()[0]
-
+    
     vis = Visualizer(startDate, str(date.today()), colorDict(db))
     vis.display()
 
+'''
 
 if __name__ == "__main__":
     main()

@@ -1,3 +1,2 @@
 TODO:
-    - Fix animation?
-    - Only reading the times that are on the specific date. It should keep a constant basis.
+    - WORK AROUND RATE LIMITS (maybe use embeds instead)
