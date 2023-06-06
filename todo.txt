@@ -1,2 +1,0 @@
-TODO:
-    - WORK AROUND RATE LIMITS (maybe use embeds instead)
