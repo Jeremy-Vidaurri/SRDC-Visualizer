@@ -1,13 +1,14 @@
 from sqlHelper import sqlHelper
 from apiHelper import srcomAPI
 from visualizer import Visualizer
+from DataSorter import DataSorter
 import pandas as pd
 from datetime import date
 
 
 def sql_to_csv(db):
     db_df = pd.read_sql_query(
-        "SELECT playerName,runDate,runTime FROM RUNS", db.con)
+        "SELECT playerName,runDate,runTime FROM RUNS ORDER BY runDate", db.con)
     db_df.to_csv('database.csv', index=False)
 
 
@@ -38,11 +39,12 @@ def main():
     categories = api.retrieveCategories(game_id)
     api.retrieveRuns(game_id, categories[0][0])
     db.con.commit()
-
-    print(categories)
+    print("Finished collecting runs")
 
     sql_to_csv(db)
-
+    dataSorter = DataSorter("database.csv")
+    dataSorter.topTenOnly()
+    print("Finished sorting runs")
 
 '''
     sql = "SELECT min(runDate) FROM RUNS"

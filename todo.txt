@@ -1,2 +1,4 @@
 TODO:
-    - WORK AROUND RATE LIMITS (maybe use embeds instead)
+    - Sort through data to find top ten through time
+    - Expand top ten data in csv
+    - Feed that information to BarChartRace library (idr the name).

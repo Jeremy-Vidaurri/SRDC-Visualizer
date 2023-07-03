@@ -15,7 +15,7 @@ class sqlHelper(object):
         try:
             connection = sqlite3.connect(path)
         except Error as e:
-            print(f"Error:{e}")
+            raise Exception(f"Error:{e}")
 
         self.con = connection
         if self.con:
